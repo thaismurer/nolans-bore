@@ -1,73 +1,101 @@
 # Nolansbore Project
 
-This repository contains notebooks and helper scripts for modeling spectral data to predict TotalREE (total rare earth elements) using LightGBM and PLSR. The notebooks are organized for reproducible, group-aware cross validation (group = depth interval) and include interpretation with SHAP and VIP.
+This repository contains notebooks and helper scripts for modeling spectral data to predict TotalREE (total rare earth elements). The code demonstrates three modeling approaches with interval-aware, group-based cross-validation and includes interpretability analyses.
 
-Files of interest
+**Files of interest**
 
-- `lightgbm.ipynb` — LightGBM workflow: data preparation, group-aware CV, training, bag-level aggregation, plotting, SHAP interpretation.
-- `plsr.ipynb` — PLS regression workflow with VIP analysis for variable importance.
-- `add_interval_column.py` — CLI script that adds an `interval` column to a CSV based on depth values and predefined intervals.
+- `notebook/lightgbm.ipynb` — LightGBM workflow: data preparation, group-aware cross-validation, model training, bag-level aggregation, plotting, and SHAP interpretation.
+- `notebook/plsr.ipynb` — Partial Least Squares Regression (PLSR) workflow with VIP analysis for variable importance.
+- `notebook/multiple-instance-learning.ipynb` — Multiple-Instance Learning (MIL) model with attention pooling implemented in PyTorch (bag-level predictions, interpretability via attention/saliency).
+- `add_interval_column.py` — CLI utility that adds an `interval` column to a CSV based on depth values and predefined intervals.
 
-Requirements
+**Requirements**
 
-A minimal Python environment with the packages used in the notebooks. A `requirements.txt` is provided, but you can install the packages manually if preferred.
+A minimal Python environment is required. Use the provided `requirements.txt` to install dependencies.
 
 - Python 3.8+
-- Packages: see `requirements.txt`
+- See `requirements.txt` for package versions (recommended).
 
-Quick setup (PowerShell)
+**Quick setup (PowerShell)**
 
 ```powershell
 # Create a virtual environment
 python -m venv .venv
 # Activate
 .\.venv\Scripts\Activate.ps1
-# Install requirements
+# Upgrade pip and install requirements
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-How to prepare your data
+**Preparing your data**
 
-1. Your spectral CSV must contain:
-   - A depth column (default name: `Depth`)
-   - A group/interval column (optional). If missing, use `add_interval_column.py` to create it.
-   - Spectral columns named with numeric strings (e.g., `400`, `401.5`, ...). These will be detected automatically.
+1. The spectral CSV must contain:
 
-2. To add the `interval` column based on depth using the default intervals from the notebook:
+   - A depth column (default name: `Depth`).
+   - Optionally an `interval` or group column. If missing, use `add_interval_column.py`.
+   - Spectral feature columns named as numeric strings (e.g., `400`, `401.5`, ...). The notebooks auto-detect spectral columns.
+
+2. Add an `interval` column (default behavior):
 
 ```powershell
 python add_interval_column.py hullq.csv
-# produces hullq_interval.csv (by default)
+# Output: hullq_interval.csv (by default)
 ```
 
-3. To provide custom intervals (JSON file containing a list of [start, end] pairs):
+3. Use custom intervals (JSON file with [[start,end], ...]):
 
 ```powershell
 python add_interval_column.py hullq.csv --intervals-json my_intervals.json
 ```
 
-Running the notebooks
+**Running the notebooks**
 
-Open the notebooks in VS Code or Jupyter and run cells in order. Recommended sequence:
+Open the notebooks in VS Code or Jupyter and run cells sequentially. Recommended order:
 
-1. `lightgbm.ipynb`
-   - Confirm `DATA_CSV` and `FOLDS_JSON` paths in the configuration cell.
-   - If `folds_groupkfold.json` does not exist, the notebook will generate and save deterministic folds (based on `GROUP_COL`).
-   - The notebook saves plots (e.g., `lgbm_oof_profile.png`, `lgbm_oof_scatter.png`) and SHAP images.
+1. `notebook/lightgbm.ipynb`
 
-2. `plsr.ipynb` (if you want PLSR analysis and VIP scores)
+   - Confirm `DATA_CSV`, `FOLDS_JSON`, and `RANDOM_STATE` in the configuration cell.
+   - If `folds_groupkfold.json` is missing, the notebook will generate and save folds.
+   - Outputs: OOF predictions, scatter/profile plots, SHAP figures.
 
-Notes and tips
+2. `notebook/multiple-instance-learning.ipynb`
 
-- Reproducibility: the notebooks perform deterministic sorting before fold creation and use a `RANDOM_STATE` variable; keep it fixed for reproducible results.
-- Large datasets and SHAP: SHAP can be slow; the notebooks subsample background points when computing SHAP values.
-- If you change column names, update `DEPTH_COL` and `GROUP_COL` in the config cell.
+   - MIL (PyTorch) uses an attention pooling model. Check `RANDOM_STATE` and device (`CPU`/`CUDA`) settings in the config.
+   - This notebook contains seeding for reproducibility (NumPy, Python `random`, and PyTorch seeds). See the Reproducibility section below.
 
-Development & testing
+3. `notebook/plsr.ipynb`
 
-You can run `add_interval_column.py` on sample CSV files to quickly create the required `interval` column before running the notebooks.
+   - PLSR training and VIP importance scoring. Also honours `RANDOM_STATE` for deterministic behavior where applicable.
 
-Contact / Questions
+**Reproducibility**
 
-If you want changes to the notebooks (more explanation, added tests, auto-generation of plots into a report, etc.), open an issue or ask for the change and I can implement it.
+To reproduce identical results across runs, follow these guidelines:
+
+- Keep `RANDOM_STATE` fixed in each notebook's configuration cell. All notebooks include a `RANDOM_STATE` constant (default `42`).
+- For the MIL (PyTorch) notebook, seeding covers:
+  - Python's `random` module (`random.seed(RANDOM_STATE)`).
+  - NumPy (`np.random.seed(RANDOM_STATE)`).
+  - PyTorch CPU/GPU (`torch.manual_seed`, `torch.cuda.manual_seed_all`).
+  - `torch.backends.cudnn.deterministic = True` and `torch.backends.cudnn.benchmark = False` (may reduce performance).
+- If you use PyTorch `DataLoader`, set `num_workers=0` for strict reproducibility, or provide a `worker_init_fn` that seeds each worker.
+- LightGBM and scikit-learn use NumPy's RNG and their own `random_state` parameters; ensure model constructors set `random_state=RANDOM_STATE` when applicable.
+
+Quick verification: run a notebook twice (fresh kernel each time). Compare saved OOF predictions (or CSV outputs). They should be identical when `RANDOM_STATE` and device settings are unchanged.
+
+**Notes & Tips**
+
+- SHAP on large datasets can be slow and memory-intensive; notebooks subsample background points for SHAP computation.
+- Enabling full determinism (`cudnn.deterministic=True`) may degrade training speed. Only enforce it when exact reproducibility is required for experiments.
+- If you modify column names, update `DEPTH_COL`, `GROUP_COL`, and path constants in the notebook configuration cells.
+
+**Summary & Next Steps**
+
+- The notebooks are organized for reproducible experiments across modeling approaches (LightGBM, PLSR, MIL).
+- Next recommended improvements: add unit tests for helper functions (`depth_to_interval_label`), add CI to validate notebooks run headlessly, and include small example datasets for quick smoke-tests.
+
+**Contact / Contributions**
+
+Open an issue or create a pull request for changes, improvements, or clarifications.
+
+_Last updated: 2025-11-12_
